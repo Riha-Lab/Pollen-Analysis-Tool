@@ -21,7 +21,7 @@ else:
     icon_file = os.path.join('assets', 'icon.png')
 
 a = Analysis(
-    ['pollen_analysis_app.py.py'],
+    ['pollen_analysis_app.py'],
     pathex=[],
     binaries=[],
     datas=[
