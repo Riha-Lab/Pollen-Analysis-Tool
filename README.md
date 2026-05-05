@@ -1,11 +1,75 @@
-# 🌸 Pollen Analysis Tool
+<p align="center">
+  <img src="assets/icon.png" width="160" alt="Pollen Analysis Tool"/>
+</p>
 
-**Automated pollen viability analysis powered by Cellpose-SAM deep learning.**
-Built by [Riha Lab](https://github.com/Riha-Lab) for biologists — no coding required.
+<h1 align="center">🌸 Pollen Analysis Tool (PAT)</h1>
 
-[![Build & Release](https://github.com/Riha-Lab/Pollen-Analysis-Tool/actions/workflows/build-release.yml/badge.svg)](https://github.com/Riha-Lab/Pollen-Analysis-Tool/actions/workflows/build-release.yml)
-[![Docker](https://img.shields.io/docker/pulls/rihalab/pollen-analysis)](https://hub.docker.com/r/rihalab/pollen-analysis)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+<p align="center">
+  <b>AI-powered pollen segmentation and viability analysis — no coding required</b><br>
+  Built for biologists, powered by <a href="https://github.com/MouseLand/cellpose">Cellpose-SAM</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Riha-Lab/Pollen-Analysis-Tool/actions/workflows/build-release.yml">
+    <img src="https://github.com/Riha-Lab/Pollen-Analysis-Tool/actions/workflows/build-release.yml/badge.svg" alt="Build & Release"/>
+  </a>
+  <a href="https://hub.docker.com/r/vivekraxwal/pollen-analysis">
+    <img src="https://img.shields.io/docker/pulls/vivekraxwal/pollen-analysis" alt="Docker Pulls"/>
+  </a>
+  <a href="https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Riha-Lab/Pollen-Analysis-Tool" alt="Latest Release"/>
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"/>
+  </a>
+</p>
+
+---
+
+## What is PAT?
+
+**Pollen Analysis Tool (PAT)** is a desktop application that automates the detection, segmentation, and counting of viable pollen grains in Alexander stained microscopy images. It uses state-of-the-art deep learning (Cellpose-SAM or fine-tuned Cellpose-SAM) to accurately count  pollen grains, and generate publication-ready statistical reports — all through a simple point-and-click interface.
+
+No programming experience is needed. PAT runs on Windows and macOS, or via Docker on any platform.
+
+<p align="center">
+  <img src="assets/PAT_segmentation.png" alt="PAT segmentation example — raw image on the left, colour-coded segmentation overlay on the right" width="80%"/>
+  <br>
+  <em>PAT automatically detects and colour-codes individual pollen grains from confocal microscopy images</em>
+</p>
+
+---
+
+## 🖥️ Features
+
+**Segmentation & Detection**
+- Automatic pollen grain segmentation using Cellpose-SAM, or a custom fine-tuned model (cellpose_pollen)
+- Interactive manual correction — add, remove, or edit detections with a click
+- Batch processing of entire image folders
+
+**Model Training**
+- Built-in annotation interface — label your own images
+- Fine-tune a custom Cellpose model on your specific pollen morphology
+- Load and share custom model weights
+
+**Statistics & Reporting**
+- Comparison across multiple samples and treatments
+- Automatic selection of appropriate statistical test (ANOVA or Kruskal-Wallis) with post-hoc analysis
+- Exports: CSV data table · boxplot figure · full PDF report
+
+---
+
+## 📁 Output files
+
+For each analysis run PAT saves:
+
+| File | Description |
+|------|-------------|
+| `*_mask.png` | 16-bit mask with each grain labelled by unique ID |
+| `*_overlay.png` | Colour-coded segmentation overlaid on original image |
+| `*_counts.csv` | Per-grain area |
+| `results_boxplot.png` | Publication-ready comparison figure |
+| `pollen_report.pdf` | Full statistical report with all figures |
 
 ---
 
@@ -85,7 +149,7 @@ docker compose down
 # Update to the latest version
 docker compose pull && docker compose up
 
-# Remove downloaded weights cache (frees ~2 GB)
+# Remove downloaded weights cache
 docker volume rm pollen-analysis-tool_pollen_weights
 ```
 
@@ -107,79 +171,27 @@ source .venv/bin/activate
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 
-python PollenAnalysis_Trainer_PyQt6_v17.py
+python pollen_analysis_app.py
 ```
 
 ---
 
-## 🖥️ Features
+## 📖 Citation
 
-- **Automated segmentation** using Cellpose-SAM, Cellpose, or your own custom model
-- **Viability classification** with Alexander stain colour channels
-- **Batch processing** of entire image folders
-- **Statistical analysis** — ANOVA / Kruskal-Wallis with Tukey post-hoc
-- **PDF & CSV reports** generated automatically
-- **Training mode** — annotate images and fine-tune a custom model
+If you use PAT in your research, please cite:
+
+```
+Volkava et al (2026). Pollen Analysis Tool (PAT): An Image Analysis Tool for Automated Scoring of Pollens from Alexander-Stained Anthers.
+GitHub: https://github.com/Riha-Lab/Pollen-Analysis-Tool
+```
+
+> A manuscript is in preparation. This section will be updated with the journal reference.
 
 ---
 
-## 🗂️ Repo structure
+## 🤝 Contributing
 
-```
-Pollen-Analysis-Tool/
-├── PollenAnalysis_Trainer_PyQt6_v17.py   # main application
-├── requirements.txt                       # Python dependencies
-├── PollenAnalysis.spec                    # PyInstaller build spec
-├── Dockerfile                             # CPU Docker image
-├── Dockerfile.gpu                         # GPU Docker image
-├── docker-compose.yml                     # one-command launcher
-├── assets/
-│   ├── icon.ico                           # Windows icon
-│   ├── icon.icns                          # macOS icon
-│   ├── icon.png                           # Linux / Docker icon
-│   └── dmg_background.png                 # macOS DMG background
-├── installer/
-│   ├── windows/installer.nsi              # NSIS Windows installer script
-│   └── mac/
-│       ├── build_dmg.sh                   # DMG creation script
-│       └── entitlements.plist             # macOS code-signing entitlements
-└── .github/
-    └── workflows/
-        └── build-release.yml              # CI/CD pipeline
-```
-
----
-
-## 🚀 Releasing a new version
-
-```bash
-# Tag a new version — GitHub Actions builds everything automatically
-git tag v1.2.0
-git push origin v1.2.0
-```
-
-GitHub Actions will:
-1. Build native installers for Windows x64, macOS Intel, and macOS Apple Silicon
-2. Build and push a multi-arch Docker image to Docker Hub
-3. Create a GitHub Release with all files attached
-
----
-
-## 🔧 GitHub Secrets required for CI/CD
-
-Go to **Settings → Secrets and variables → Actions** and add:
-
-| Secret | Description |
-|--------|-------------|
-| `DOCKERHUB_USERNAME` | Your Docker Hub username |
-| `DOCKERHUB_TOKEN` | Docker Hub access token ([create here](https://hub.docker.com/settings/security)) |
-
-Optional (for signed macOS builds):
-| Secret | Description |
-|--------|-------------|
-| `CODESIGN_IDENTITY` | Apple Developer ID (e.g. `Developer ID Application: Your Name (TEAMID)`) |
-| `APPLE_CERTIFICATE` | Base64-encoded `.p12` certificate |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for the `.p12` file |
+Bug reports and feature requests are welcome — please open a [GitHub Issue](https://github.com/Riha-Lab/Pollen-Analysis-Tool/issues).
 
 ---
 
@@ -189,6 +201,6 @@ MIT © Riha Lab — see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgements
 
-- [Cellpose](https://github.com/MouseLand/cellpose) — cell segmentation framework
+- [Cellpose](https://github.com/MouseLand/cellpose) 
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — GUI framework
-- [PyInstaller](https://pyinstaller.org/) — cross-platform packaging
+- [ReportLab](https://www.reportlab.com/) — PDF report generation
