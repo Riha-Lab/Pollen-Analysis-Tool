@@ -27,12 +27,7 @@ jobs:
             arch: x86_64
             artifact_name: PollenAnalysisTool-Windows-x64
 
-          # macOS Intel
-          - os: macos
-            runner: macos-13          # Intel runner
-            arch: x86_64
-            artifact_name: PollenAnalysisTool-macOS-Intel
-
+          
           # macOS Apple Silicon
           - os: macos
             runner: macos-14          # Apple M1/M2 runner
@@ -83,12 +78,12 @@ jobs:
         if: matrix.os == 'macos'
         run: bash installer/mac/build_dmg.sh ${{ matrix.arch }}
 
-      # ── Windows: create NSIS installer ──────────────────────────────────
       - name: Build NSIS installer (Windows)
         if: matrix.os == 'windows'
         run: |
           choco install nsis --no-progress -y
           & "C:\Program Files (x86)\NSIS\makensis.exe" installer\windows\installer.nsi
+          Get-ChildItem -Filter "*.exe" -Recurse | Select-Object FullName
         shell: pwsh
 
       # ── Gather release assets ────────────────────────────────────────────
@@ -101,9 +96,9 @@ jobs:
       - name: Collect artifacts (Windows)
         if: matrix.os == 'windows'
         run: |
-          mkdir release-assets
-          copy PollenAnalysisTool-Setup-Windows-x64.exe release-assets\
-        shell: cmd
+          New-Item -ItemType Directory -Force -Path release-assets
+          Copy-Item "installer\windows\PollenAnalysisTool-Setup-Windows-x64.exe" release-assets\
+        shell: pwsh
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -147,8 +142,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            rihalab/pollen-analysis:${{ steps.meta.outputs.tag }}
-            rihalab/pollen-analysis:latest
+            vivekraxwal/pollen-analysis:${{ steps.meta.outputs.tag }}
+            vivekraxwal/pollen-analysis:latest
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
@@ -185,8 +180,8 @@ jobs:
             |----------|------|
             | 🪟 **Windows** (Intel/AMD x64) | `PollenAnalysisTool-Setup-Windows-x64.exe` |
             | 🍎 **macOS** (Apple Silicon M1/M2/M3) | `PollenAnalysisTool-*-macOS-arm64.dmg` |
-            | 🍎 **macOS** (Intel) | `PollenAnalysisTool-*-macOS-x86_64.dmg` |
-            | 🐳 **Docker** (all platforms) | `docker pull rihalab/pollen-analysis:${{ github.ref_name }}` |
+            | 🍎 **macOS** (Intel) | Use Docker or run from source |
+            | 🐳 **Docker** (all platforms) | `docker pull vivekraxwal/pollen-analysis:${{ github.ref_name }}` |
 
             ### 🚀 Quick Start — Docker
             ```bash
