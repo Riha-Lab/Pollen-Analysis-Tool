@@ -17,7 +17,7 @@ Built by [Riha Lab](https://github.com/Riha-Lab) for biologists — no coding re
 |----------|----------|
 | 🪟 **Windows** 10/11 (Intel or AMD) | [`PollenAnalysisTool-Setup-Windows-x64.exe`](https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/latest) |
 | 🍎 **macOS** Apple Silicon (M1 / M2 / M3) | [`PollenAnalysisTool-macOS-arm64.dmg`](https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/latest) |
-| 🍎 **macOS** Intel | [`PollenAnalysisTool-macOS-x86_64.dmg`](https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/latest) |
+| 🍎 **macOS** (Intel) | Use Docker or run from source — see below |
 
 **Windows — step by step**
 1. Download `PollenAnalysisTool-Setup-Windows-x64.exe` from the link above.
