@@ -1,4 +1,25 @@
 import sys
+import io
+import os
+
+# 1. Create dummy streams so libraries like tqdm/cellpose 
+# don't crash when sys.stdout/stderr are None in windowed mode.
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
+# 2. Tell Cellpose NOT to check for/download models at startup.
+# This forces it to wait until you manually provide a path in the GUI.
+os.environ["CELLPOSE_LOCAL_MODELS"] = "1"
+os.environ["TQDM_DISABLE"] = "1"
+
+# Now your original imports...
+import re
+import warnings
+import re
+import warnings
+import sys
 import re
 import warnings
 import traceback
@@ -1300,7 +1321,7 @@ class PollenAnalysisApp(QMainWindow):
          BTN_TXT, SIDE_TXT, SIDE_MUTE, SIDE_HI, HDR_BG) = THEMES[theme_name]
         return f"""
 * {{
-    font-family: "Optima","Gill Sans","Candara","Segoe UI",sans-serif;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
     color: {TXT}; outline: none;
 }}
 QMainWindow, QDialog {{ background: {BG}; }}
@@ -1318,11 +1339,11 @@ QFrame#Sidebar {{
     border-right: 1px solid rgba(0,0,0,0.18);
 }}
 QLabel#LogoTitle {{
-    font-size: {round(12*scale)}px; font-weight: 800; color: {SIDE_HI};
+    font-size: {round(12*scale)}px; font-weight: bold; color: {SIDE_HI};
     margin: 0; padding: 0;
 }}
 QLabel#LogoSub {{
-    font-size: {round(8*scale)}px; font-weight: 600; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: normal; color: {SIDE_MUTE};
     letter-spacing: 1.2px;
 }}
 QFrame#SidebarSep {{
@@ -1344,14 +1365,14 @@ QScrollBar::handle:horizontal:hover {{ background: {ACC}; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
 QLabel#NavSection {{
-    font-size: {round(8*scale)}px; font-weight: 800; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: bold; color: {SIDE_MUTE};
     letter-spacing: 2px;
     padding: 12px 14px 4px 16px;
 }}
 
 QPushButton#NavBtn {{
     background: transparent; border: none; border-radius: 6px;
-    color: {SIDE_TXT}; font-size: {round(12*scale)}px; font-weight: 500;
+    color: {SIDE_TXT}; font-size: {round(12*scale)}px; font-weight: normal;
     text-align: left; padding: 5px 10px 5px 14px;
     min-height: 32px;
 }}
@@ -1361,7 +1382,7 @@ QPushButton#NavBtn:hover {{
 }}
 QPushButton#NavBtn:checked {{
     background: rgba(58,107,53,0.28);
-    color: {SIDE_HI}; font-weight: 700;
+    color: {SIDE_HI}; font-weight: bold;
     border-left: 3px solid {ACC2};
     padding-left: 12px;
 }}
@@ -1380,11 +1401,11 @@ QFrame#PageHeader {{
     border-bottom: 1px solid {BDR_SOLID};
 }}
 QLabel#PageTitle {{
-    font-size: {round(15*scale)}px; font-weight: 800;
+    font-size: {round(15*scale)}px; font-weight: bold;
     color: {TXT}; letter-spacing: -0.3px;
 }}
 QLabel#PageSubtitle {{
-    font-size: {round(10*scale)}px; color: {MUTE}; font-weight: 500;
+    font-size: {round(10*scale)}px; color: {MUTE}; font-weight: normal;
     font-style: italic;
 }}
 
@@ -1394,7 +1415,7 @@ QFrame#Card {{
     border-radius: 10px;
 }}
 QLabel#CardTitle {{
-    font-size: {round(9*scale)}px; font-weight: 800;
+    font-size: {round(9*scale)}px; font-weight: bold;
     color: {MUTE}; letter-spacing: 1.8px;
     padding-bottom: 4px;
     margin-bottom: 2px;
@@ -1405,11 +1426,11 @@ QLabel#HintLabel {{
     line-height: 1.5;
 }}
 QLabel#FormLabel {{
-    font-size: {round(11*scale)}px; color: {TXT}; font-weight: 500;
+    font-size: {round(11*scale)}px; color: {TXT}; font-weight: normal;
 }}
 
 QLabel#TrainBaseLabel {{
-    font-size: {round(11*scale)}px; font-weight: 700;
+    font-size: {round(11*scale)}px; font-weight: bold;
     color: {ACC};
     background: rgba(58,107,53,0.08);
     border: 1px solid rgba(58,107,53,0.28);
@@ -1441,7 +1462,7 @@ QPushButton#PrimaryBtn {{
     background: {ACC}; color: {BTN_TXT};
     border: none; border-bottom: 2px solid {DARK};
     border-radius: 8px; padding: 0 16px;
-    font-size: {round(12*scale)}px; font-weight: 700;
+    font-size: {round(12*scale)}px; font-weight: bold;
     min-height: 34px;
 }}
 QPushButton#PrimaryBtn:hover  {{ background: {DARK}; }}
@@ -1454,7 +1475,7 @@ QPushButton#ActionBtn {{
     background: {CARD}; color: {TXT};
     border: 1px solid {BDR_SOLID}; border-bottom: 2px solid {BDR_SOLID};
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 600; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: 500; min-height: 30px;
 }}
 QPushButton#ActionBtn:hover  {{ background: {HI_MAIN}; border-color: {ACC}; }}
 QPushButton#ActionBtn:pressed {{ background: {HI_MAIN}; border-bottom-width: 1px; padding-top: 1px; }}
@@ -1464,7 +1485,7 @@ QPushButton#SecondaryBtn {{
     background: {CARD}; color: {TXT};
     border: 1px solid {BDR_SOLID}; border-bottom: 2px solid {BDR_SOLID};
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 600; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: 500; min-height: 30px;
 }}
 QPushButton#SecondaryBtn:hover  {{ background: {HI_MAIN}; border-color: {ACC}; }}
 QPushButton#SecondaryBtn:pressed {{ border-bottom-width: 1px; padding-top: 1px; }}
@@ -1474,7 +1495,7 @@ QPushButton#DangerBtn {{
     border: 1px solid rgba(201,64,64,0.30);
     border-bottom: 2px solid rgba(201,64,64,0.30);
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 700; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: bold; min-height: 30px;
 }}
 QPushButton#DangerBtn:hover {{
     background: rgba(201,64,64,0.08);
@@ -1490,7 +1511,7 @@ QTableWidget {{
 }}
 QHeaderView::section {{
     background: {SIDE}; color: {SIDE_TXT};
-    font-size: {round(9*scale)}px; font-weight: 800; letter-spacing: 1.5px;
+    font-size: {round(9*scale)}px; font-weight: bold; letter-spacing: 1.5px;
     padding: 7px 10px; border: none;
     border-bottom: 1px solid rgba(0,0,0,0.20);
 }}
@@ -1510,7 +1531,7 @@ QListWidget::item {{
 QListWidget::item:hover   {{ background: {HI_MAIN}; }}
 QListWidget::item:selected {{
     background: {HI_MAIN}; color: {ACC};
-    font-weight: 600; border: none;
+    font-weight: bold; border: none;
 }}
 
 QTabWidget::pane {{ border: none; background: {BG}; }}
@@ -1518,7 +1539,7 @@ QTabBar::tab {{
     background: {SIDE}; color: {SIDE_TXT};
     padding: 9px 18px; border: none;
     border-top-left-radius: 8px; border-top-right-radius: 8px;
-    font-weight: 600; font-size: {round(12*scale)}px; margin-right: 3px;
+    font-weight: 500; font-size: {round(12*scale)}px; margin-right: 3px;
     border-bottom: 2px solid transparent;
 }}
 QTabBar::tab:selected {{ background: {CARD}; color: {ACC}; border-bottom: 2px solid {ACC}; }}
@@ -1533,7 +1554,7 @@ QProgressBar::chunk {{ background: {ACC}; border-radius: 4px; }}
 QToolTip {{
     background: #1A271A; border: none; border-radius: 6px;
     color: #EEF7E8; padding: 7px 11px;
-    font-size: {round(11*scale)}px; font-weight: 500;
+    font-size: {round(11*scale)}px; font-weight: normal;
 }}
 
 QFrame#FontScalePanel {{
@@ -1541,11 +1562,11 @@ QFrame#FontScalePanel {{
     padding: 6px 14px 8px 14px;
 }}
 QLabel#FontScaleLabel {{
-    font-size: {round(8*scale)}px; font-weight: 700; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: bold; color: {SIDE_MUTE};
     letter-spacing: 1.5px;
 }}
 QLabel#FontScaleValue {{
-    font-size: {round(10*scale)}px; font-weight: 600; color: {SIDE_TXT};
+    font-size: {round(10*scale)}px; font-weight: normal; color: {SIDE_TXT};
 }}
 QSlider#FontScaleSlider::groove:horizontal {{
     height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px;
