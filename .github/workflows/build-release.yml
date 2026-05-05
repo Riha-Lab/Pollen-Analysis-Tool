@@ -147,8 +147,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            rihalab/pollen-analysis:${{ steps.meta.outputs.tag }}
-            rihalab/pollen-analysis:latest
+            vivekraxwal/pollen-analysis:${{ steps.meta.outputs.tag }}
+            vivekraxwal/pollen-analysis:latest
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
