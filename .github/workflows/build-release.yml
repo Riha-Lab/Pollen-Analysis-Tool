@@ -180,8 +180,9 @@ jobs:
             |----------|------|
             | 🪟 **Windows** (Intel/AMD x64) | `PollenAnalysisTool-Setup-Windows-x64.exe` |
             | 🍎 **macOS** (Apple Silicon M1/M2/M3) | `PollenAnalysisTool-*-macOS-arm64.dmg` |
-            | 🍎 **macOS** (Intel) | `PollenAnalysisTool-*-macOS-x86_64.dmg` |
-            | 🐳 **Docker** (all platforms) | `docker pull rihalab/pollen-analysis:${{ github.ref_name }}` |
+            | 🍎 **macOS** (Intel) | Use Docker or run from source |
+            | 🐳 **Docker** (all platforms) | `docker pull vivekraxwal/pollen-analysis:${{ github.ref_name }}` |
+
 
             ### 🚀 Quick Start — Docker
             ```bash
