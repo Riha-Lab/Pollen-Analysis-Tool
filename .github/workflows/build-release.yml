@@ -83,12 +83,12 @@ jobs:
         if: matrix.os == 'macos'
         run: bash installer/mac/build_dmg.sh ${{ matrix.arch }}
 
-      # ── Windows: create NSIS installer ──────────────────────────────────
       - name: Build NSIS installer (Windows)
         if: matrix.os == 'windows'
         run: |
           choco install nsis --no-progress -y
           & "C:\Program Files (x86)\NSIS\makensis.exe" installer\windows\installer.nsi
+          Get-ChildItem -Filter "*.exe" -Recurse | Select-Object FullName
         shell: pwsh
 
       # ── Gather release assets ────────────────────────────────────────────
@@ -102,7 +102,7 @@ jobs:
         if: matrix.os == 'windows'
         run: |
           New-Item -ItemType Directory -Force -Path release-assets
-          Copy-Item PollenAnalysisTool-Setup-Windows-x64.exe release-assets\
+          Copy-Item "*.exe" release-assets\
         shell: pwsh
 
       - name: Upload build artifact
