@@ -1,0 +1,206 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"          # triggers on  git tag v1.0.0  +  git push --tags
+  workflow_dispatch:       # allows manual trigger from GitHub UI
+
+permissions:
+  contents: write          # needed to create GitHub Releases
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Build native desktop apps ──────────────────────────────────────────
+  build-native:
+    name: Build (${{ matrix.os }} / ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64 (Intel/AMD)
+          - os: windows
+            runner: windows-latest
+            arch: x86_64
+            artifact_name: PollenAnalysisTool-Windows-x64
+
+          # macOS Intel
+          - os: macos
+            runner: macos-13          # Intel runner
+            arch: x86_64
+            artifact_name: PollenAnalysisTool-macOS-Intel
+
+          # macOS Apple Silicon
+          - os: macos
+            runner: macos-14          # Apple M1/M2 runner
+            arch: arm64
+            artifact_name: PollenAnalysisTool-macOS-AppleSilicon
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Python setup ────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # ── Install PyTorch (CPU wheels are cross-platform; GPU needs CUDA) ────
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      # ── Install app dependencies ─────────────────────────────────────────
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      # ── Pre-fetch Cellpose-SAM weights so they are bundled in the cache ────
+      - name: Pre-fetch model weights
+        run: |
+          python -c "
+          from huggingface_hub import hf_hub_download
+          hf_hub_download(repo_id='mouseland/cellpose-sam', filename='cpsam')
+          print('Weights cached.')
+          "
+        continue-on-error: true   # don't fail build if HuggingFace is slow
+
+      # ── Run PyInstaller ──────────────────────────────────────────────────
+      - name: Build with PyInstaller
+        run: pyinstaller PollenAnalysis.spec --noconfirm --clean
+
+      # ── macOS: create DMG ────────────────────────────────────────────────
+      - name: Install create-dmg (macOS)
+        if: matrix.os == 'macos'
+        run: brew install create-dmg
+
+      - name: Build DMG (macOS)
+        if: matrix.os == 'macos'
+        run: bash installer/mac/build_dmg.sh ${{ matrix.arch }}
+
+      # ── Windows: create NSIS installer ──────────────────────────────────
+      - name: Build NSIS installer (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          choco install nsis --no-progress -y
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer\windows\installer.nsi
+        shell: pwsh
+
+      # ── Gather release assets ────────────────────────────────────────────
+      - name: Collect artifacts (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          mkdir -p release-assets
+          cp dist/PollenAnalysisTool-*.dmg release-assets/
+
+      - name: Collect artifacts (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          mkdir release-assets
+          copy PollenAnalysisTool-Setup-Windows-x64.exe release-assets\
+        shell: cmd
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release-assets/
+          retention-days: 7
+
+  # ── 2. Build & push Docker image ──────────────────────────────────────────
+  build-docker:
+    name: Docker image (linux/amd64 + linux/arm64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for cross-platform builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version tag
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME:-dev}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push CPU image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            rihalab/pollen-analysis:${{ steps.meta.outputs.tag }}
+            rihalab/pollen-analysis:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+  # ── 3. Create GitHub Release ──────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build-native, build-docker]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Pollen Analysis Tool ${{ github.ref_name }}"
+          body: |
+            ## 🌸 Pollen Analysis Tool ${{ github.ref_name }}
+
+            ### 📥 Downloads
+
+            | Platform | File |
+            |----------|------|
+            | 🪟 **Windows** (Intel/AMD x64) | `PollenAnalysisTool-Setup-Windows-x64.exe` |
+            | 🍎 **macOS** (Apple Silicon M1/M2/M3) | `PollenAnalysisTool-*-macOS-arm64.dmg` |
+            | 🍎 **macOS** (Intel) | `PollenAnalysisTool-*-macOS-x86_64.dmg` |
+            | 🐳 **Docker** (all platforms) | `docker pull rihalab/pollen-analysis:${{ github.ref_name }}` |
+
+            ### 🚀 Quick Start — Docker
+            ```bash
+            # Linux / macOS (with XQuartz on Mac):
+            xhost +local:docker
+            docker compose up
+            ```
+
+            ### 📦 Installer (Windows / macOS)
+            Download the file for your platform above, double-click, and follow the setup wizard.
+
+            ### 📖 Full documentation
+            See [README.md](https://github.com/Riha-Lab/Pollen-Analysis-Tool#readme)
+          files: release-assets/**/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true

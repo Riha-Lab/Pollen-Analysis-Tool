@@ -1,0 +1,54 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Pollen Analysis Tool — Docker Compose
+#
+#  Quick start (Linux / macOS with XQuartz / Windows with VcXsrv):
+#    docker compose up
+#
+#  GPU (NVIDIA) users:
+#    docker compose --profile gpu up
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-common: &common
+  image: rihalab/pollen-analysis:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  volumes:
+    # Mount host home folder so you can open/save files easily
+    - "${HOME:-~}/PollenData:/data"
+    # Persist downloaded model weights between runs
+    - pollen_weights:/root/.cache
+  environment:
+    - DISPLAY=${DISPLAY:-:0}
+    - QT_QPA_PLATFORM=xcb
+    - QT_AUTO_SCREEN_SCALE_FACTOR=1
+  network_mode: host          # simplest way to pass $DISPLAY through
+  stdin_open: true
+  tty: true
+
+services:
+
+  # ── Default (CPU) service ──────────────────────────────────────────────────
+  pollen:
+    <<: *common
+
+  # ── GPU service (opt-in with --profile gpu) ───────────────────────────────
+  pollen-gpu:
+    <<: *common
+    profiles: [gpu]
+    image: rihalab/pollen-analysis:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pollen_weights:
