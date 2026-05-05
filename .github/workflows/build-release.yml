@@ -101,9 +101,9 @@ jobs:
       - name: Collect artifacts (Windows)
         if: matrix.os == 'windows'
         run: |
-          mkdir release-assets
-          copy PollenAnalysisTool-Setup-Windows-x64.exe release-assets\
-        shell: cmd
+          New-Item -ItemType Directory -Force -Path release-assets
+          Copy-Item PollenAnalysisTool-Setup-Windows-x64.exe release-assets\
+        shell: pwsh
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
