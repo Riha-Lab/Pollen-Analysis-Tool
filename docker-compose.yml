@@ -11,7 +11,7 @@ version: "3.9"
 # ─────────────────────────────────────────────────────────────────────────────
 
 x-common: &common
-  image: rihalab/pollen-analysis:latest
+  image: vivekraxwal/pollen-analysis:latest
   build:
     context: .
     dockerfile: Dockerfile
