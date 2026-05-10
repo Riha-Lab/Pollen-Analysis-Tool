@@ -91,9 +91,16 @@ For each analysis run PAT saves:
 > ⚠️ Windows may show a SmartScreen warning for unsigned software. Click **More info → Run anyway**.
 
 **macOS — step by step**
-1. Download the `.dmg` that matches your Mac (Apple Silicon or Intel).
+1. Download the `.dmg` for Mac (Apple Silicon).
 2. Double-click the `.dmg` → drag **PollenAnalysisTool** into **Applications**.
 3. First launch: right-click the app → **Open** → **Open** (bypasses Gatekeeper).
+
+> ⚠️ macOS may also block running the app.
+1.  Open System Settings (formerly System Preferences).
+2.  Navigate to Privacy & Security.
+3.  Scroll down to the Security section.
+4.  You will see a message saying: "PAT was blocked from use because it is not from an identified developer."
+5.  Click Open Anyway
 
 ---
 
