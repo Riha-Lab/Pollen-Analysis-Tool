@@ -90,8 +90,7 @@ For each analysis run PAT saves:
 
 > ⚠️ Windows may show a SmartScreen warning for unsigned software. Click **More info → Run anyway**.
 
-
-** Windows (GPU usage)** 
+**Windows (GPU usage)** 
 1) Download the repository (see option B windows)
 2) double click setup-conda.bat file This will install dependencies
 3) double click launch-pollen.bat to start the tool
