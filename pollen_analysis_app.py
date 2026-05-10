@@ -182,7 +182,22 @@ class ModelLoaderThread(QThread):
     error       = pyqtSignal(str)
 
     def run(self):
-        gpu = torch.cuda.is_available()
+        # Primary check: honour an explicit override env-var first.
+        # Docker GPU image sets CELLPOSE_USE_GPU=1; the EXE installer can
+        # also set it so that CUDA-capable Windows machines always use the GPU
+        # without relying on torch.cuda.is_available() (which can return False
+        # when the CUDA runtime DLLs are not on PATH inside a frozen bundle).
+        _env_gpu = os.environ.get("CELLPOSE_USE_GPU", "").strip()
+        if _env_gpu == "1":
+            gpu = True
+        elif _env_gpu == "0":
+            gpu = False
+        else:
+            gpu = torch.cuda.is_available()
+
+        self.status.emit(
+            f"Hardware: {'GPU ✔ (CUDA)' if gpu else 'CPU only'}"
+        )
 
         # Patch torch.load for PyTorch 2.6 compatibility
         _orig = torch.load
@@ -418,7 +433,12 @@ def plot_outlines(img, masks):
                 approx = cv2.approxPolyDP(c, 0.001 * peri, True)[:, 0, :]
                 outpix.append(approx)
         ar = img_n.shape[0] / img_n.shape[1]
-        fig = plt.figure(figsize=(6, 6 * ar) if ar >= 1 else (6 / ar, 6), facecolor='k')
+        # Use the non-interactive Agg figure/canvas pair (same pattern as
+        # plot_publication_figure) so this works inside a frozen Windows EXE
+        # where plt.figure() may fail because no GUI backend is initialised
+        # on the worker thread that calls this function.
+        fig = _MplFigure(figsize=(6, 6 * ar) if ar >= 1 else (6 / ar, 6), facecolor='k')
+        _FigureCanvasAgg(fig)   # attach non-interactive canvas so savefig works
         ax = fig.add_subplot(111)
         ax.set_xlim([0, img_n.shape[1]])
         ax.set_ylim([0, img_n.shape[0]])
@@ -2118,7 +2138,8 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
         self.btn_output_dir.setFixedHeight(38)
         self.btn_output_dir.clicked.connect(self.set_output_folder)
         out_lyt.addWidget(self.btn_output_dir)
-        self.lbl_output_dir = QLabel("Default: same folder as input images")
+        self.lbl_output_dir = QLabel("⚠  No folder selected — required before running analysis")
+        self.lbl_output_dir.setStyleSheet("color: #C94040; font-style: italic;")
         self.lbl_output_dir.setObjectName("HintLabel")
         out_lyt.addWidget(self.lbl_output_dir)
         p0_inner_lyt.addWidget(out_card)
@@ -2824,6 +2845,7 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
         if folder:
             self.output_dir = folder
             self.lbl_output_dir.setText(f"Output: {folder}")
+            self.lbl_output_dir.setStyleSheet("")   # remove warning colour
 
     def reset_enhancements(self):
         # blockSignals to prevent double display_image calls during reset
@@ -2927,7 +2949,12 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
             samples = set()
 
             # Find all image files in subfolders
+            # Skip any previously-generated output directories so a second run
+            # doesn't accidentally pick up result images as input data.
+            _OUTPUT_DIR_NAME = "pollen_analysis_output"
             for root, dirs, files in os.walk(folder_path):
+                # Prune output dirs in-place so os.walk won't descend into them
+                dirs[:] = [d for d in dirs if d != _OUTPUT_DIR_NAME]
                 for file in files:
                     if file.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff')):
                         full_path = os.path.join(root, file)
@@ -3237,12 +3264,8 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
 
         if getattr(self, 'output_dir', None):
             base_dir = self.output_dir
-        elif getattr(self, 'batch_folder_path', None):
-            base_dir = self.batch_folder_path
-        elif self.validation_entries and 'file' in self.validation_entries[0]:
-            base_dir = os.path.dirname(self.validation_entries[0]['file'])
         else:
-            base_dir = os.getcwd()
+            base_dir = os.getcwd()   # safe neutral location; never the input data folder
 
         save_dir = os.path.join(base_dir, "custom_models")
         os.makedirs(save_dir, exist_ok=True)
@@ -3403,19 +3426,37 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
             self.status_label.setText("Status: No validated images to analyze")
             return
 
-        self._switch_page(4)   # Results & Export page
+        # ── Require an explicit output folder — never write into the input folder ──
+        if not getattr(self, 'output_dir', None):
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self,
+                "Output Folder Required",
+                "No output folder has been selected.\n\n"
+                "Please choose an output folder now.\n"
+                "(Results will never be written into the input/data folder.)",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Ok,
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                self.status_label.setText(
+                    "Status: Analysis cancelled — please select an output folder first."
+                )
+                return
+            # Open the folder picker immediately
+            folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+            if not folder:
+                self.status_label.setText(
+                    "Status: No output folder selected — analysis cancelled."
+                )
+                return
+            self.output_dir = folder
+            self.lbl_output_dir.setText(f"Output: {folder}")
 
-        if getattr(self, 'output_dir', None):
-            base_dir = self.output_dir
-        elif getattr(self, 'batch_folder_path', None):
-            base_dir = self.batch_folder_path
-        elif self.validation_entries and 'file' in self.validation_entries[0]:
-            base_dir = os.path.dirname(self.validation_entries[0]['file'])
-        else:
-            base_dir = os.getcwd()
-
-        output_dir = os.path.join(base_dir, "pollen_analysis_output")
+        output_dir = os.path.join(self.output_dir, "pollen_analysis_output")
         os.makedirs(output_dir, exist_ok=True)
+
+        self._switch_page(4)   # Results & Export page
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         _plot_order = []

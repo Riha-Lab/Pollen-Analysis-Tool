@@ -10,6 +10,7 @@ cellpose_datas    = collect_data_files('cellpose')
 scipy_datas       = collect_data_files('scipy')
 statsmodels_datas = collect_data_files('statsmodels')
 torch_datas       = collect_data_files('torch')
+matplotlib_datas  = collect_data_files('matplotlib')
 
 # Platform-specific icon
 if sys.platform == 'darwin':
@@ -29,6 +30,7 @@ a = Analysis(
         *scipy_datas,
         *statsmodels_datas,
         *torch_datas,
+        *matplotlib_datas,
     ],
     hiddenimports=[
         # PyQt6
@@ -37,6 +39,11 @@ a = Analysis(
         # matplotlib
         'matplotlib.backends.backend_qtagg',
         'matplotlib.backends.backend_agg',
+        'matplotlib.figure',
+        'matplotlib.font_manager',
+        'matplotlib.ticker',
+        'matplotlib.patches',
+        'matplotlib.colors',
         # cellpose / torch
         'cellpose',
         'cellpose.models',

@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Pollen Analysis Tool — Conda Environment
+#
+#  Quickstart (let the setup script handle everything automatically):
+#    Linux / macOS:  bash setup-conda.sh
+#    Windows:        setup-conda.bat
+#
+#  Or manually:
+#    conda env create -f environment.yml
+#    conda activate pollen-analysis
+#    python pollen_analysis_app.py
+#
+#  GPU note: PyTorch + CUDA 12.1 is installed by default when a GPU is
+#  detected by the setup script.  For a CPU-only install run:
+#    conda env create -f environment.yml -n pollen-analysis --no-plugins \
+#      --override-channels -c pytorch -c conda-forge
+#  or set POLLEN_CPU_ONLY=1 before running setup-conda.sh / setup-conda.bat.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: pollen-analysis
+
+channels:
+  - pytorch          # official PyTorch wheels (GPU + CPU)
+  - nvidia           # CUDA toolkit — conda manages it, no system CUDA needed
+  - conda-forge      # everything else; highest quality community packages
+  - defaults
+
+dependencies:
+  - python=3.11
+
+  # ── PyTorch (GPU — CUDA 12.1) ─────────────────────────────────────────────
+  # The setup script automatically switches these to cpuonly when no GPU is found.
+  # To install CPU-only manually, replace the three lines below with:
+  #   - pytorch::pytorch=2.3.*
+  #   - pytorch::torchvision=0.18.*
+  #   - pytorch::cpuonly
+  - pytorch::pytorch=2.3.*
+  - pytorch::torchvision=0.18.*
+  - pytorch::pytorch-cuda=12.1
+
+  # ── GUI framework ─────────────────────────────────────────────────────────
+  # conda-forge's PyQt6 bundles the Qt6 runtime — no separate Qt install needed
+  - conda-forge::pyqt6>=6.4.0
+
+  # ── Core scientific stack ─────────────────────────────────────────────────
+  - conda-forge::numpy>=1.24.0
+  - conda-forge::scipy>=1.10.0
+  - conda-forge::pandas>=2.0.0
+  - conda-forge::matplotlib>=3.7.0
+  - conda-forge::pillow>=10.0.0
+  - conda-forge::statsmodels>=0.14.0
+
+  # ── Image processing ──────────────────────────────────────────────────────
+  # Use the full opencv build (not headless) so all codecs are available
+  - conda-forge::opencv>=4.7.0
+
+  # ── Network / download ────────────────────────────────────────────────────
+  - conda-forge::requests>=2.28.0
+
+  # ── pip-only packages (not available as conda packages) ───────────────────
+  - pip
+  - pip:
+      - cellpose>=3.0.0          # Cellpose + SAM segmentation engine
+      - reportlab>=4.0.0         # PDF report generation
+      - huggingface_hub>=0.16.0  # model weight downloads from HuggingFace
+      - scikit-posthocs>=0.9.0   # Dunn post-hoc statistical test (optional but recommended)
