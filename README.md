@@ -75,7 +75,7 @@ For each analysis run PAT saves:
 
 ## 📥 Installation — choose your method
 
-### Option A — Native desktop app (recommended for most users)
+### Option A — Native desktop app
 
 | Platform | Download |
 |----------|----------|
@@ -83,12 +83,16 @@ For each analysis run PAT saves:
 | 🍎 **macOS** Apple Silicon (M1 / M2 / M3) | [`PollenAnalysisTool-macOS-arm64.dmg`](https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/latest) |
 | 🍎 **macOS** (Intel) | Use Docker or run from source — see below |
 
-**Windows — step by step**
+**Windows — step by step** (CPU only)
 1. Download `PollenAnalysisTool-Setup-Windows-x64.exe` from the link above.
 2. Double-click the installer → click **Next** → **Install**.
 3. A shortcut appears on your desktop. Launch it and you're done.
 
 > ⚠️ Windows may show a SmartScreen warning for unsigned software. Click **More info → Run anyway**.
+** Windows (GPU usage)** 
+1) Download the repository (see option B windows)
+2) double click setup-conda.bat file This will install dependencies
+3) double click launch-pollen.bat to start the tool
 
 **macOS — step by step**
 1. Download the `.dmg` for Mac (Apple Silicon).
@@ -103,8 +107,29 @@ For each analysis run PAT saves:
 5.  Click Open Anyway
 
 ---
+### Option B — Conda (recommended for developers & GPU users)
 
-### Option B — Docker (Linux, macOS, Windows · CPU or GPU)
+Works on Windows, Linux, and macOS. GPU is used automatically if an
+NVIDIA card is present — no manual CUDA installation needed.
+
+**Linux / macOS**
+```bash
+git clone https://github.com/Riha-Lab/Pollen-Analysis-Tool.git
+cd Pollen-Analysis-Tool
+bash setup-conda.sh          # installs conda if needed, auto-detects GPU
+conda activate pollen-analysis
+python pollen_analysis_app.py
+# or just: bash launch-pollen.sh
+```
+
+**Windows** — open any terminal (CMD, PowerShell, or Anaconda Prompt):
+```bat
+git clone https://github.com/Riha-Lab/Pollen-Analysis-Tool.git
+cd Pollen-Analysis-Tool
+setup-conda.bat
+:: then double-click launch-pollen.bat to start the tool
+```
+### Option C — Docker (Linux, macOS, Windows · CPU or GPU)
 
 Docker lets you run the tool in an isolated container with a single command.
 No Python installation needed.
@@ -162,7 +187,7 @@ docker volume rm pollen-analysis-tool_pollen_weights
 
 ---
 
-### Option C — Run from source (developers / advanced users)
+### Option D — Run from source (developers / advanced users)
 
 ```bash
 # Requires Python 3.10 or 3.11
