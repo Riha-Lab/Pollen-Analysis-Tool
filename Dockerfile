@@ -2,18 +2,36 @@ FROM python:3.11-slim
 
 # ── System dependencies ────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        # Core GL / EGL — PyQt6 links these unconditionally
         libgl1 \
+        libegl1 \
         libglib2.0-0 \
-        libxcb-xinerama0 \
+        # xcb platform plugin — base
         libxcb1 \
+        libxcb-xinerama0 \
         libx11-xcb1 \
+        # xcb-cursor: required by Qt >= 6.5.0 to load the xcb plugin
+        libxcb-cursor0 \
+        # xcb extras used by Qt window/input subsystems
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-util1 \
+        # X11 rendering
         libxrender1 \
         libxext6 \
         libxi6 \
+        libx11-6 \
+        # Qt font / dbus / keyboard
         libdbus-1-3 \
         libfontconfig1 \
         libfreetype6 \
-        libx11-6 \
+        libxkbcommon0 \
+        libxkbcommon-x11-0 \
+        # X11 forwarding helpers
         x11-apps \
         xauth \
     && rm -rf /var/lib/apt/lists/*
@@ -22,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 
-# Install CPU-only PyTorch first (keeps image smaller; GPU users override via compose)
+# Install CPU-only PyTorch first (pinned wheel; must come before requirements.txt)
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -35,14 +53,43 @@ ENV QT_QPA_PLATFORM=xcb
 ENV DISPLAY=:0
 
 # Pre-download model weights into the image so first run is instant
-RUN python - <<'EOF'
-import os, sys
+RUN python3 - <<'PYEOF'
+import os, requests
+from huggingface_hub import hf_hub_download
+
+cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "pollen_analysis_tool")
+os.makedirs(cache_dir, exist_ok=True)
+
+# 1. Base Cellpose-SAM (HuggingFace)
 try:
-    from huggingface_hub import hf_hub_download
     hf_hub_download(repo_id="mouseland/cellpose-sam", filename="cpsam")
     print("Cellpose-SAM weights cached.")
 except Exception as e:
-    print(f"Weight pre-download skipped (will download on first run): {e}")
-EOF
+    print(f"Cellpose-SAM pre-download skipped: {e}")
+
+# 2. Fine-tuned pollen model (GitHub release)
+pollen_path = os.path.join(cache_dir, "cpsam_pollen")
+if not os.path.isfile(pollen_path):
+    url = "https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/download/v1.1.0/cpsam_pollen"
+    try:
+        print("Downloading fine-tuned pollen model...", flush=True)
+        with requests.get(url, stream=True, timeout=300, allow_redirects=True) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length", 0))
+            done = 0
+            with open(pollen_path + ".part", "wb") as fh:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        fh.write(chunk)
+                        done += len(chunk)
+                        if total:
+                            print(f"  {done//1_048_576}/{total//1_048_576} MB", flush=True)
+        os.replace(pollen_path + ".part", pollen_path)
+        print("Fine-tuned pollen model cached.")
+    except Exception as e:
+        print(f"Pollen model pre-download skipped (will download on first run): {e}")
+else:
+    print("Fine-tuned pollen model already cached.")
+PYEOF
 
 CMD ["python", "pollen_analysis_app.py"]

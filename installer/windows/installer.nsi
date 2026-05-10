@@ -18,11 +18,19 @@ InstallDir     "${INSTALL_DIR}"
 RequestExecutionLevel admin
 SetCompressor  /SOLID lzma
 
+; FIX 1: Set estimated install size so Add/Remove Programs shows it correctly.
+; Update this number (in KB) if the installed size changes significantly.
+!define ESTIMATED_SIZE 2500000   ; ~2.5 GB for PyTorch + models
+
 ; Modern UI
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
 !define MUI_ICON   "..\..\assets\icon.ico"
 !define MUI_UNICON "..\..\assets\icon.ico"
+
+; FIX 2: Add a "first launch" info page so users know models will download.
+; This is the plain-text version — replace with a bitmap if you have one.
+!define MUI_WELCOMEPAGE_TEXT "Welcome to the Pollen Analysis Tool installer.$\r$\n$\r$\nOn first launch the app will download AI model weights (~800 MB total). This only happens once — subsequent starts are instant.$\r$\n$\r$\nPlease ensure you have an internet connection ready."
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -59,12 +67,18 @@ Section "Install"
   WriteRegStr   HKLM "${REG_KEY}" "UninstallString"  "$INSTDIR\Uninstall.exe"
   WriteRegDWORD HKLM "${REG_KEY}" "NoModify"         1
   WriteRegDWORD HKLM "${REG_KEY}" "NoRepair"         1
+  ; FIX 3: Write estimated size so Windows shows it in Add/Remove Programs
+  WriteRegDWORD HKLM "${REG_KEY}" "EstimatedSize"    "${ESTIMATED_SIZE}"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
 
 ; ── Uninstall ────────────────────────────────────────────────────────────────
 Section "Uninstall"
+  ; FIX 4: Also clean up the model weight cache the app writes on first run.
+  ; This is optional — comment out if you want to preserve cached models.
+  RMDir /r "$LOCALAPPDATA\.cache\pollen_analysis_tool"
+
   RMDir /r "$INSTDIR"
   Delete   "$DESKTOP\Pollen Analysis Tool.lnk"
   RMDir /r "$SMPROGRAMS\Riha Lab"

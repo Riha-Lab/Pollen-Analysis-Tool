@@ -5,12 +5,11 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-block_cipher = None
-
-# Collect cellpose data files (model configs, etc.)
-cellpose_datas = collect_data_files('cellpose')
-scipy_datas    = collect_data_files('scipy')
+# Collect data files for packages with non-Python assets
+cellpose_datas    = collect_data_files('cellpose')
+scipy_datas       = collect_data_files('scipy')
 statsmodels_datas = collect_data_files('statsmodels')
+torch_datas       = collect_data_files('torch')
 
 # Platform-specific icon
 if sys.platform == 'darwin':
@@ -29,6 +28,7 @@ a = Analysis(
         *cellpose_datas,
         *scipy_datas,
         *statsmodels_datas,
+        *torch_datas,
     ],
     hiddenimports=[
         # PyQt6
@@ -44,9 +44,18 @@ a = Analysis(
         'torch',
         'torch.nn',
         'torchvision',
+        # opencv
+        'cv2',
+        # PIL / Pillow
+        'PIL',
+        'PIL.Image',
+        # pandas
+        'pandas',
+        'pandas._libs.tslibs.timedeltas',
         # scipy / stats
         'scipy.stats',
         'scipy.special',
+        'scipy.special._ufuncs',
         'scipy.linalg',
         'scipy._lib.messagestream',
         # statsmodels
@@ -59,18 +68,19 @@ a = Analysis(
         'reportlab.lib.styles',
         'reportlab.lib.units',
         'reportlab.graphics',
+        # stdlib used at runtime
+        'requests',
+        'multiprocessing',
+        'concurrent.futures',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,
@@ -82,9 +92,9 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,       # no terminal window
+    console=False,
     disable_windowed_traceback=False,
-    target_arch=None,    # let CI set this per matrix job
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=icon_file,
@@ -97,7 +107,14 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    # Don't UPX-compress Qt/torch binaries — causes crashes on Windows
+    upx_exclude=[
+        'vcruntime140.dll',
+        'python*.dll',
+        'Qt6*.dll',
+        'torch_python*.pyd',
+        '_C*.pyd',
+    ],
     name='PollenAnalysisTool',
 )
 

@@ -1,4 +1,25 @@
 import sys
+import io
+import os
+
+# 1. Create dummy streams so libraries like tqdm/cellpose 
+# don't crash when sys.stdout/stderr are None in windowed mode.
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
+# 2. Tell Cellpose NOT to check for/download models at startup.
+# This forces it to wait until you manually provide a path in the GUI.
+os.environ["CELLPOSE_LOCAL_MODELS"] = "1"
+os.environ["TQDM_DISABLE"] = "1"
+
+# Now your original imports...
+import re
+import warnings
+import re
+import warnings
+import sys
 import re
 import warnings
 import traceback
@@ -61,66 +82,265 @@ CHANNEL_OPTIONS = {
 }
 DEFAULT_CHANNEL = "RGB (trained on colour images)"
 
-# Model weights download functions
-def download_weights_cpsam():
+# ---------------------------------------------------------------------------
+# Model weight paths / cache dir
+# ---------------------------------------------------------------------------
+_WEIGHTS_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "pollen_analysis_tool")
+os.makedirs(_WEIGHTS_CACHE_DIR, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Model weight download helpers
+# Each function returns the local path to the weight file.
+# ---------------------------------------------------------------------------
+
+def _download_with_progress(url, dest_path, progress_cb=None):
+    """Stream-download *url* to *dest_path*.
+    progress_cb(bytes_done, total_bytes) is called periodically (total may be 0
+    if the server doesn't send Content-Length).
+    """
+    tmp_path = dest_path + ".part"
+    with requests.get(url, stream=True, timeout=60, allow_redirects=True) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length", 0))
+        done = 0
+        with open(tmp_path, "wb") as fh:
+            for chunk in r.iter_content(chunk_size=1 << 20):   # 1 MB chunks
+                if chunk:
+                    fh.write(chunk)
+                    done += len(chunk)
+                    if progress_cb:
+                        progress_cb(done, total)
+    os.replace(tmp_path, dest_path)
+    return dest_path
+
+
+def download_weights_cpsam_pollen(progress_cb=None):
+    """Download the Riha-Lab fine-tuned pollen model (cpsam_pollen).
+    Cached at ~/.cache/pollen_analysis_tool/cpsam_pollen.
+    """
+    fname = os.path.join(_WEIGHTS_CACHE_DIR, "cpsam_pollen")
+    if os.path.isfile(fname):
+        return fname
+    url = "https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/download/v1.1.0/cpsam_pollen"
+    return _download_with_progress(url, fname, progress_cb)
+
+
+def download_weights_cpsam(progress_cb=None):
+    """Download the base Cellpose-SAM weights via huggingface_hub."""
     try:
         return hf_hub_download(repo_id="mouseland/cellpose-sam", filename="cpsam")
     except Exception as e:
-        print(f"Error downloading Cellpose-SAM weights: {e}")
-        raise
+        print(f"HuggingFace download failed, trying OSF fallback: {e}")
+        return download_weights_cpsam_old(progress_cb)
 
-def download_weights_cpsam_old():
-    import tempfile
-    cache_dir = os.path.join(tempfile.gettempdir(), "cellpose_weights")
-    os.makedirs(cache_dir, exist_ok=True)
-    fname = os.path.join(cache_dir, "cpsam")
+
+def download_weights_cpsam_old(progress_cb=None):
+    """OSF fallback for base Cellpose-SAM weights."""
+    fname = os.path.join(_WEIGHTS_CACHE_DIR, "cpsam")
+    if os.path.isfile(fname):
+        return fname
     url = "https://osf.io/d7c8e/download"
-    if not os.path.isfile(fname):
-        for ntries in range(10):
-            try:
-                r = requests.get(url, timeout=30)
-                if r.status_code == requests.codes.ok:
-                    with open(fname, "wb") as fid:
-                        fid.write(r.content)
-                    return fname
-                else:
-                    print(f"!!! HTTP {r.status_code} downloading Cellpose-SAM weights (attempt {ntries+1}/10) !!!")
-            except Exception as e:
-                print(f"!!! Failed to download Cellpose-SAM weights: {e} (attempt {ntries+1}/10) !!!")
-        raise Exception("Failed to download Cellpose-SAM weights after 10 attempts")
-    return fname
+    for attempt in range(10):
+        try:
+            return _download_with_progress(url, fname, progress_cb)
+        except Exception as e:
+            print(f"OSF attempt {attempt+1}/10 failed: {e}")
+    raise RuntimeError("Failed to download Cellpose-SAM weights after 10 attempts")
 
-# PyTorch 2.6: patch torch.load globally at startup so that model weights
-# saved without weights_only=True can still be loaded. The patch is removed
-# after model loading is complete.
-_orig_torch_load = torch.load
-def _permissive_load(*args, **kwargs):
-    kwargs.setdefault("weights_only", False)
-    return _orig_torch_load(*args, **kwargs)  # noqa: F821 – deleted after use below
-torch.load = _permissive_load
 
-# Load models
-try:
-    cpsam_path = download_weights_cpsam()
-    model_cpsam = models.CellposeModel(gpu=torch.cuda.is_available(), pretrained_model=cpsam_path)
-except Exception as e:
-    print(f"Error loading Cellpose-SAM model: {e}")
-    try:
-        print("Attempting fallback download for Cellpose-SAM...")
-        cpsam_path = download_weights_cpsam_old()
-        model_cpsam = models.CellposeModel(gpu=torch.cuda.is_available(), pretrained_model=cpsam_path)
-    except Exception as e:
-        print(f"Cellpose-SAM fallback failed: {e}")
-        model_cpsam = None
-
-model_cellpose = models.CellposeModel(gpu=torch.cuda.is_available())
-
-torch.load = _orig_torch_load
-del _orig_torch_load, _permissive_load
+# ---------------------------------------------------------------------------
+# Module-level model globals — populated by ModelLoaderThread at startup.
+# All code that uses these must tolerate None until loading is complete.
+# ---------------------------------------------------------------------------
+model_cpsam_pollen = None   # fine-tuned pollen model (default)
+model_cpsam        = None   # base Cellpose-SAM
+model_cellpose     = None   # built-in Cellpose (always available, no download)
 
 # Custom model registry
 model_custom = None
 model_custom_name = ""
+
+
+# ---------------------------------------------------------------------------
+# Background model loader — runs before the main window so the UI stays alive
+# ---------------------------------------------------------------------------
+class ModelLoaderThread(QThread):
+    """Downloads and loads all three models off the main thread.
+
+    Signals
+    -------
+    status(str)          Human-readable status line for the splash dialog.
+    progress(int, int)   (bytes_done, total_bytes) during active downloads.
+    model_ready(str, object)  (model_key, model_object) as each model finishes.
+    all_done()           Emitted when every model has been attempted.
+    error(str)           Emitted if a non-recoverable error occurs.
+    """
+    status      = pyqtSignal(str)
+    progress    = pyqtSignal(int, int)
+    model_ready = pyqtSignal(str, object)   # key: "pollen" | "cpsam" | "cellpose"
+    all_done    = pyqtSignal()
+    error       = pyqtSignal(str)
+
+    def run(self):
+        gpu = torch.cuda.is_available()
+
+        # Patch torch.load for PyTorch 2.6 compatibility
+        _orig = torch.load
+        def _permissive(*a, **kw):
+            kw.setdefault("weights_only", False)
+            return _orig(*a, **kw)
+        torch.load = _permissive
+
+        try:
+            # ── Step 1: built-in cellpose (no download, but takes a few seconds) ──
+            self.status.emit("Loading built-in Cellpose model…")
+            try:
+                m = models.CellposeModel(gpu=gpu)
+                self.model_ready.emit("cellpose", m)
+                self.status.emit("✔  Built-in Cellpose loaded.")
+            except Exception as e:
+                self.status.emit(f"⚠  Built-in Cellpose failed: {e}")
+
+            # ── Step 2: fine-tuned pollen model (primary download) ──────────────
+            self.status.emit(
+                "Downloading fine-tuned pollen model (~400 MB) — "
+                "this only happens once…"
+            )
+            try:
+                def _prog_pollen(done, total):
+                    self.progress.emit(done, total)
+                    if total:
+                        mb_done  = done  / 1_048_576
+                        mb_total = total / 1_048_576
+                        self.status.emit(
+                            f"Downloading pollen model: "
+                            f"{mb_done:.0f} / {mb_total:.0f} MB"
+                        )
+                path = download_weights_cpsam_pollen(_prog_pollen)
+                self.progress.emit(0, 0)
+                self.status.emit("Loading fine-tuned pollen model into memory…")
+                m = models.CellposeModel(gpu=gpu, pretrained_model=path)
+                self.model_ready.emit("pollen", m)
+                self.status.emit("✔  Fine-tuned pollen model loaded.")
+            except Exception as e:
+                self.status.emit(f"⚠  Pollen model unavailable: {e}")
+
+            # ── Step 3: base Cellpose-SAM ────────────────────────────────────────
+            self.status.emit(
+                "Downloading base Cellpose-SAM model (~400 MB) — "
+                "this only happens once…"
+            )
+            try:
+                def _prog_cpsam(done, total):
+                    self.progress.emit(done, total)
+                    if total:
+                        mb_done  = done  / 1_048_576
+                        mb_total = total / 1_048_576
+                        self.status.emit(
+                            f"Downloading Cellpose-SAM: "
+                            f"{mb_done:.0f} / {mb_total:.0f} MB"
+                        )
+                path = download_weights_cpsam(_prog_cpsam)
+                self.progress.emit(0, 0)
+                self.status.emit("Loading Cellpose-SAM into memory…")
+                m = models.CellposeModel(gpu=gpu, pretrained_model=path)
+                self.model_ready.emit("cpsam", m)
+                self.status.emit("✔  Cellpose-SAM loaded.")
+            except Exception as e:
+                self.status.emit(f"⚠  Cellpose-SAM unavailable: {e}")
+
+        finally:
+            torch.load = _orig
+            self.all_done.emit()
+
+
+# ---------------------------------------------------------------------------
+# Splash / progress dialog shown while models load
+# ---------------------------------------------------------------------------
+class ModelDownloadSplash(QWidget):
+    """Full-screen splash shown while models are downloading / loading.
+
+    Stays on top, blocks interaction with any other window, and gives the
+    user clear per-step feedback so they know the app hasn't hung.
+    """
+
+    def __init__(self):
+        super().__init__(None, Qt.WindowType.Window |
+                               Qt.WindowType.CustomizeWindowHint |
+                               Qt.WindowType.WindowTitleHint)
+        self.setWindowTitle("Pollen Analysis Tool — Loading Models")
+        self.setFixedSize(540, 320)
+        self._center()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("🌸  Pollen Analysis Tool")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #1E2D1E;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Setting up AI models — please wait")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("font-size: 12px; color: #555;")
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(8)
+
+        self.status_label = QLabel(
+            "Preparing…\n\n"
+            "Model files are large (~400 MB each) and need to be downloaded\n"
+            "on first launch. Subsequent starts will be instant."
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet(
+            "font-size: 11px; color: #3A6B35; "
+            "background: #EEF7E8; border-radius: 6px; padding: 10px;"
+        )
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setStyleSheet(
+            "QProgressBar { border: 1px solid #C8D4C0; border-radius: 4px; "
+            "background: #F4F1EA; height: 20px; text-align: center; } "
+            "QProgressBar::chunk { background: #3A6B35; border-radius: 3px; }"
+        )
+        layout.addWidget(self.progress_bar)
+
+        note = QLabel(
+            "ℹ  Downloads are cached — you only pay this cost once per machine."
+        )
+        note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 10px; color: #888;")
+        layout.addWidget(note)
+
+    def _center(self):
+        from PyQt6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            self.move(sg.center() - self.rect().center())
+
+    def set_status(self, text):
+        self.status_label.setText(text)
+
+    def set_progress(self, done, total):
+        if total and total > 0:
+            pct = min(100, int(done * 100 / total))
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(pct)
+            self.progress_bar.setFormat(f"%p%  ({done//1_048_576} / {total//1_048_576} MB)")
+        else:
+            # Indeterminate while loading into memory
+            self.progress_bar.setRange(0, 0)
+            self.progress_bar.setFormat("Loading…")
 
 # ---------------------------------------------------------------------------
 # Utility functions ported from V5
@@ -1207,10 +1427,14 @@ class PollenAnalysisApp(QMainWindow):
         self.image = None
         self.image_display = None
         self.mask = None
-        self.current_model = model_cellpose
-        self._active_model_display_name = (
-            "cellpose-SAM" if model_cpsam is not None else "cellpose (built-in)"
-        )
+        # Default to best available model (populated by ModelLoaderThread)
+        self.current_model = model_cpsam_pollen or model_cpsam or model_cellpose
+        if model_cpsam_pollen is not None:
+            self._active_model_display_name = "cpsam-pollen (fine-tuned)"
+        elif model_cpsam is not None:
+            self._active_model_display_name = "cellpose-SAM"
+        else:
+            self._active_model_display_name = "cellpose (built-in)"
         self.batch_files = []
         self.batch_results = []
         
@@ -1300,7 +1524,7 @@ class PollenAnalysisApp(QMainWindow):
          BTN_TXT, SIDE_TXT, SIDE_MUTE, SIDE_HI, HDR_BG) = THEMES[theme_name]
         return f"""
 * {{
-    font-family: "Optima","Gill Sans","Candara","Segoe UI",sans-serif;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
     color: {TXT}; outline: none;
 }}
 QMainWindow, QDialog {{ background: {BG}; }}
@@ -1318,11 +1542,11 @@ QFrame#Sidebar {{
     border-right: 1px solid rgba(0,0,0,0.18);
 }}
 QLabel#LogoTitle {{
-    font-size: {round(12*scale)}px; font-weight: 800; color: {SIDE_HI};
+    font-size: {round(12*scale)}px; font-weight: bold; color: {SIDE_HI};
     margin: 0; padding: 0;
 }}
 QLabel#LogoSub {{
-    font-size: {round(8*scale)}px; font-weight: 600; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: normal; color: {SIDE_MUTE};
     letter-spacing: 1.2px;
 }}
 QFrame#SidebarSep {{
@@ -1344,14 +1568,14 @@ QScrollBar::handle:horizontal:hover {{ background: {ACC}; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
 QLabel#NavSection {{
-    font-size: {round(8*scale)}px; font-weight: 800; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: bold; color: {SIDE_MUTE};
     letter-spacing: 2px;
     padding: 12px 14px 4px 16px;
 }}
 
 QPushButton#NavBtn {{
     background: transparent; border: none; border-radius: 6px;
-    color: {SIDE_TXT}; font-size: {round(12*scale)}px; font-weight: 500;
+    color: {SIDE_TXT}; font-size: {round(12*scale)}px; font-weight: normal;
     text-align: left; padding: 5px 10px 5px 14px;
     min-height: 32px;
 }}
@@ -1361,7 +1585,7 @@ QPushButton#NavBtn:hover {{
 }}
 QPushButton#NavBtn:checked {{
     background: rgba(58,107,53,0.28);
-    color: {SIDE_HI}; font-weight: 700;
+    color: {SIDE_HI}; font-weight: bold;
     border-left: 3px solid {ACC2};
     padding-left: 12px;
 }}
@@ -1380,11 +1604,11 @@ QFrame#PageHeader {{
     border-bottom: 1px solid {BDR_SOLID};
 }}
 QLabel#PageTitle {{
-    font-size: {round(15*scale)}px; font-weight: 800;
+    font-size: {round(15*scale)}px; font-weight: bold;
     color: {TXT}; letter-spacing: -0.3px;
 }}
 QLabel#PageSubtitle {{
-    font-size: {round(10*scale)}px; color: {MUTE}; font-weight: 500;
+    font-size: {round(10*scale)}px; color: {MUTE}; font-weight: normal;
     font-style: italic;
 }}
 
@@ -1394,7 +1618,7 @@ QFrame#Card {{
     border-radius: 10px;
 }}
 QLabel#CardTitle {{
-    font-size: {round(9*scale)}px; font-weight: 800;
+    font-size: {round(9*scale)}px; font-weight: bold;
     color: {MUTE}; letter-spacing: 1.8px;
     padding-bottom: 4px;
     margin-bottom: 2px;
@@ -1405,11 +1629,11 @@ QLabel#HintLabel {{
     line-height: 1.5;
 }}
 QLabel#FormLabel {{
-    font-size: {round(11*scale)}px; color: {TXT}; font-weight: 500;
+    font-size: {round(11*scale)}px; color: {TXT}; font-weight: normal;
 }}
 
 QLabel#TrainBaseLabel {{
-    font-size: {round(11*scale)}px; font-weight: 700;
+    font-size: {round(11*scale)}px; font-weight: bold;
     color: {ACC};
     background: rgba(58,107,53,0.08);
     border: 1px solid rgba(58,107,53,0.28);
@@ -1441,7 +1665,7 @@ QPushButton#PrimaryBtn {{
     background: {ACC}; color: {BTN_TXT};
     border: none; border-bottom: 2px solid {DARK};
     border-radius: 8px; padding: 0 16px;
-    font-size: {round(12*scale)}px; font-weight: 700;
+    font-size: {round(12*scale)}px; font-weight: bold;
     min-height: 34px;
 }}
 QPushButton#PrimaryBtn:hover  {{ background: {DARK}; }}
@@ -1454,7 +1678,7 @@ QPushButton#ActionBtn {{
     background: {CARD}; color: {TXT};
     border: 1px solid {BDR_SOLID}; border-bottom: 2px solid {BDR_SOLID};
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 600; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: 500; min-height: 30px;
 }}
 QPushButton#ActionBtn:hover  {{ background: {HI_MAIN}; border-color: {ACC}; }}
 QPushButton#ActionBtn:pressed {{ background: {HI_MAIN}; border-bottom-width: 1px; padding-top: 1px; }}
@@ -1464,7 +1688,7 @@ QPushButton#SecondaryBtn {{
     background: {CARD}; color: {TXT};
     border: 1px solid {BDR_SOLID}; border-bottom: 2px solid {BDR_SOLID};
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 600; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: 500; min-height: 30px;
 }}
 QPushButton#SecondaryBtn:hover  {{ background: {HI_MAIN}; border-color: {ACC}; }}
 QPushButton#SecondaryBtn:pressed {{ border-bottom-width: 1px; padding-top: 1px; }}
@@ -1474,7 +1698,7 @@ QPushButton#DangerBtn {{
     border: 1px solid rgba(201,64,64,0.30);
     border-bottom: 2px solid rgba(201,64,64,0.30);
     border-radius: 8px; padding: 0 12px;
-    font-size: {round(12*scale)}px; font-weight: 700; min-height: 30px;
+    font-size: {round(12*scale)}px; font-weight: bold; min-height: 30px;
 }}
 QPushButton#DangerBtn:hover {{
     background: rgba(201,64,64,0.08);
@@ -1490,7 +1714,7 @@ QTableWidget {{
 }}
 QHeaderView::section {{
     background: {SIDE}; color: {SIDE_TXT};
-    font-size: {round(9*scale)}px; font-weight: 800; letter-spacing: 1.5px;
+    font-size: {round(9*scale)}px; font-weight: bold; letter-spacing: 1.5px;
     padding: 7px 10px; border: none;
     border-bottom: 1px solid rgba(0,0,0,0.20);
 }}
@@ -1510,7 +1734,7 @@ QListWidget::item {{
 QListWidget::item:hover   {{ background: {HI_MAIN}; }}
 QListWidget::item:selected {{
     background: {HI_MAIN}; color: {ACC};
-    font-weight: 600; border: none;
+    font-weight: bold; border: none;
 }}
 
 QTabWidget::pane {{ border: none; background: {BG}; }}
@@ -1518,7 +1742,7 @@ QTabBar::tab {{
     background: {SIDE}; color: {SIDE_TXT};
     padding: 9px 18px; border: none;
     border-top-left-radius: 8px; border-top-right-radius: 8px;
-    font-weight: 600; font-size: {round(12*scale)}px; margin-right: 3px;
+    font-weight: 500; font-size: {round(12*scale)}px; margin-right: 3px;
     border-bottom: 2px solid transparent;
 }}
 QTabBar::tab:selected {{ background: {CARD}; color: {ACC}; border-bottom: 2px solid {ACC}; }}
@@ -1533,7 +1757,7 @@ QProgressBar::chunk {{ background: {ACC}; border-radius: 4px; }}
 QToolTip {{
     background: #1A271A; border: none; border-radius: 6px;
     color: #EEF7E8; padding: 7px 11px;
-    font-size: {round(11*scale)}px; font-weight: 500;
+    font-size: {round(11*scale)}px; font-weight: normal;
 }}
 
 QFrame#FontScalePanel {{
@@ -1541,11 +1765,11 @@ QFrame#FontScalePanel {{
     padding: 6px 14px 8px 14px;
 }}
 QLabel#FontScaleLabel {{
-    font-size: {round(8*scale)}px; font-weight: 700; color: {SIDE_MUTE};
+    font-size: {round(8*scale)}px; font-weight: bold; color: {SIDE_MUTE};
     letter-spacing: 1.5px;
 }}
 QLabel#FontScaleValue {{
-    font-size: {round(10*scale)}px; font-weight: 600; color: {SIDE_TXT};
+    font-size: {round(10*scale)}px; font-weight: normal; color: {SIDE_TXT};
 }}
 QSlider#FontScaleSlider::groove:horizontal {{
     height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px;
@@ -1923,9 +2147,14 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
         # Model card
         model_card, model_lyt = self._make_card("Model Selection")
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["cellpose", "cellpose-sam"])
-        if model_cpsam is not None:
+        self.model_combo.addItems(["cpsam-pollen", "cellpose-sam", "cellpose"])
+        # Default: fine-tuned pollen model if available, else cpsam, else cellpose
+        if model_cpsam_pollen is not None:
+            self.model_combo.setCurrentText("cpsam-pollen")
+        elif model_cpsam is not None:
             self.model_combo.setCurrentText("cellpose-sam")
+        else:
+            self.model_combo.setCurrentText("cellpose")
         self.model_combo.currentTextChanged.connect(self.change_model)
         model_lyt.addLayout(self._form_row("Segmentation model:", self.model_combo))
 
@@ -2632,7 +2861,17 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
         self.train_base_model_lbl.setText(f"⚙  Base model for next training run:  {name}")
 
     def change_model(self, model_name):
-        if model_name == "cellpose":
+        if model_name == "cpsam-pollen":
+            if model_cpsam_pollen is not None:
+                self.current_model = model_cpsam_pollen
+                self._active_model_display_name = "cpsam-pollen (fine-tuned)"
+            elif model_cpsam is not None:
+                self.current_model = model_cpsam
+                self._active_model_display_name = "cellpose-SAM (pollen model unavailable)"
+            else:
+                self.current_model = model_cellpose
+                self._active_model_display_name = "cellpose (pollen + SAM models unavailable)"
+        elif model_name == "cellpose":
             self.current_model = model_cellpose
             self._active_model_display_name = "cellpose (built-in)"
         elif model_name == "cellpose-sam":
@@ -2645,7 +2884,7 @@ QSplitter::handle {{ background: {BDR_SOLID}; }}
             self.current_model = model_custom
             self._active_model_display_name = f"custom: {model_custom_name}"
         else:
-            self.current_model = model_cellpose
+            self.current_model = model_cpsam_pollen or model_cpsam or model_cellpose
             self._active_model_display_name = "cellpose (built-in)"
         self._update_train_base_label()
 
@@ -3406,15 +3645,58 @@ if __name__ == "__main__":
     _app_font.setPointSize(_base_pt)
     app.setFont(_app_font)
 
-    window = PollenAnalysisApp(font_scale=_total_scale)
-    window.show()
+    # ── Model loading splash ─────────────────────────────────────────────────
+    # All three models are downloaded/loaded in a background thread while the
+    # splash dialog gives the user clear progress feedback.  On first launch
+    # this can take several minutes; subsequent runs use the local cache and
+    # finish in seconds.
+
+    splash = ModelDownloadSplash()
+    splash.show()
+    app.processEvents()
+
+    loader = ModelLoaderThread()
+
+    def on_model_ready(key, model_obj):
+        global model_cpsam_pollen, model_cpsam, model_cellpose
+        if key == "pollen":
+            model_cpsam_pollen = model_obj
+        elif key == "cpsam":
+            model_cpsam = model_obj
+        elif key == "cellpose":
+            model_cellpose = model_obj
+
+    def on_progress(done, total):
+        splash.set_progress(done, total)
+        app.processEvents()
+
+    def on_status(text):
+        splash.set_status(text)
+        app.processEvents()
+
+    def on_all_done():
+        splash.close()
+        # Build and show main window now that models are ready
+        window = PollenAnalysisApp(font_scale=_total_scale)
+        window.show()
+        # Keep a reference so it isn't GC'd
+        app._main_window = window
+
+    loader.model_ready.connect(on_model_ready)
+    loader.progress.connect(on_progress)
+    loader.status.connect(on_status)
+    loader.all_done.connect(on_all_done)
+    loader.start()
+
     exit_code = app.exec()
 
     # Graceful shutdown — stop all background threads before exit
-    for attr in ('training_thread', '_seg_thread', '_seg_batch_thread', '_analysis_thread'):
-        thread = getattr(window, attr, None)
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(3000)
+    window = getattr(app, '_main_window', None)
+    if window is not None:
+        for attr in ('training_thread', '_seg_thread', '_seg_batch_thread', '_analysis_thread'):
+            thread = getattr(window, attr, None)
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait(3000)
 
     sys.exit(exit_code)
