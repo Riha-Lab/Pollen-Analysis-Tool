@@ -89,6 +89,8 @@ For each analysis run PAT saves:
 3. A shortcut appears on your desktop. Launch it and you're done.
 
 > ⚠️ Windows may show a SmartScreen warning for unsigned software. Click **More info → Run anyway**.
+
+
 ** Windows (GPU usage)** 
 1) Download the repository (see option B windows)
 2) double click setup-conda.bat file This will install dependencies
