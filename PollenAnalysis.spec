@@ -12,6 +12,12 @@ statsmodels_datas = collect_data_files('statsmodels')
 torch_datas       = collect_data_files('torch')
 matplotlib_datas  = collect_data_files('matplotlib')
 
+# Collect ALL matplotlib backends as hidden imports.
+# savefig() lazily imports the backend that matches the file extension at
+# runtime (e.g. backend_pdf for .pdf, backend_svg for .svg).  PyInstaller
+# cannot see these dynamic imports, so we collect every backend explicitly.
+matplotlib_backends = collect_submodules('matplotlib.backends')
+
 # Platform-specific icon
 if sys.platform == 'darwin':
     icon_file = os.path.join('assets', 'icon.icns')
@@ -36,14 +42,18 @@ a = Analysis(
         # PyQt6
         'PyQt6.sip',
         'PyQt6.QtPrintSupport',
-        # matplotlib
-        'matplotlib.backends.backend_qtagg',
-        'matplotlib.backends.backend_agg',
+        # matplotlib — collect_submodules covers every backend (pdf, svg, agg,
+        # qtagg, etc.) so savefig() never hits a missing-module error at runtime
+        *matplotlib_backends,
         'matplotlib.figure',
         'matplotlib.font_manager',
         'matplotlib.ticker',
         'matplotlib.patches',
         'matplotlib.colors',
+        'matplotlib.transforms',
+        'matplotlib.artist',
+        'matplotlib.axis',
+        'matplotlib.scale',
         # cellpose / torch
         'cellpose',
         'cellpose.models',

@@ -872,7 +872,14 @@ def plot_publication_figure(df_counts, sig_pairs, method, model_type, output_dir
         plot_path = os.path.join(output_dir, f"pollen_viability_{model_type}_{timestamp}.png")
         plot_path_pdf = plot_path.replace(".png", ".pdf")
         fig.savefig(plot_path, dpi=300, bbox_inches="tight", facecolor="white")
-        fig.savefig(plot_path_pdf, dpi=300, bbox_inches="tight", facecolor="white")
+        # Save PDF version — wrap separately so a missing PDF backend
+        # (can happen in frozen EXE if backend_pdf wasn't bundled) does not
+        # crash the entire analysis; the PNG is already saved at this point.
+        try:
+            fig.savefig(plot_path_pdf, dpi=300, bbox_inches="tight", facecolor="white")
+        except Exception as _pdf_err:
+            print(f"Warning: could not save PDF plot ({_pdf_err}). PNG was saved.")
+            plot_path_pdf = plot_path   # return PNG path as fallback
         return plot_path, plot_path_pdf, fig
 
 class StreamRedirector(io.StringIO):
