@@ -26,8 +26,6 @@ jobs:
             runner: windows-latest
             arch: x86_64
             artifact_name: PollenAnalysisTool-Windows-x64
-
-          
           # macOS Apple Silicon
           - os: macos
             runner: macos-14          # Apple M1/M2 runner

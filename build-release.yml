@@ -59,27 +59,27 @@ jobs:
       - name: Pre-fetch model weights
         run: |
           python -c "
-import os, requests
-from huggingface_hub import hf_hub_download
-
-# 1. Base Cellpose-SAM
-hf_hub_download(repo_id='mouseland/cellpose-sam', filename='cpsam')
-print('Cellpose-SAM cached.')
-
-# 2. Fine-tuned pollen model
-cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'pollen_analysis_tool')
-os.makedirs(cache_dir, exist_ok=True)
-pollen_path = os.path.join(cache_dir, 'cpsam_pollen')
-if not os.path.isfile(pollen_path):
-    url = 'https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/download/v1.1.0/cpsam_pollen'
-    with requests.get(url, stream=True, timeout=300, allow_redirects=True) as r:
-        r.raise_for_status()
-        with open(pollen_path + '.part', 'wb') as fh:
-            for chunk in r.iter_content(chunk_size=1<<20):
-                if chunk: fh.write(chunk)
-    os.replace(pollen_path + '.part', pollen_path)
-    print('Fine-tuned pollen model cached.')
-"
+          import os, requests
+          from huggingface_hub import hf_hub_download
+          
+          # 1. Base Cellpose-SAM
+          hf_hub_download(repo_id='mouseland/cellpose-sam', filename='cpsam')
+          print('Cellpose-SAM cached.')
+          
+          # 2. Fine-tuned pollen model
+          cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'pollen_analysis_tool')
+          os.makedirs(cache_dir, exist_ok=True)
+          pollen_path = os.path.join(cache_dir, 'cpsam_pollen')
+          if not os.path.isfile(pollen_path):
+              url = 'https://github.com/Riha-Lab/Pollen-Analysis-Tool/releases/download/v1.1.0/cpsam_pollen'
+              with requests.get(url, stream=True, timeout=300, allow_redirects=True) as r:
+                  r.raise_for_status()
+                  with open(pollen_path + '.part', 'wb') as fh:
+                      for chunk in r.iter_content(chunk_size=1<<20):
+                          if chunk: fh.write(chunk)
+              os.replace(pollen_path + '.part', pollen_path)
+              print('Fine-tuned pollen model cached.')
+          "
         continue-on-error: true   # don't fail build if network is slow
 
       # ── Run PyInstaller ──────────────────────────────────────────────────
